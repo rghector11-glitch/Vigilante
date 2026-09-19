@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vigilante de Bypass — EDAR</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<meta name="theme-color" content="#12181f">
+<style>
+  :root{
+    --bg: #12181f;
+    --panel: #1a222b;
+    --panel-2: #212b36;
+    --line: #2c3742;
+    --text: #dbe4ec;
+    --muted: #8496a6;
+    --ok: #3ecf7e;
+    --ok-dim: #1f3d2c;
+    --warn: #e8a944;
+    --alarm: #e0483e;
+    --alarm-dim: #3a1d1a;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    --sans: "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  *{ box-sizing: border-box; }
+  body{
+    margin:0; background: var(--bg); color: var(--text);
+    font-family: var(--sans); font-size: 14px;
+    min-height:100vh;
+  }
+  header{
+    padding: 18px 24px; border-bottom: 1px solid var(--line);
+    display:flex; align-items:baseline; justify-content:space-between; gap:16px;
+    flex-wrap: wrap;
+  }
+  header h1{ font-size: 17px; margin:0; font-weight:600; letter-spacing:.2px; }
+  header .sub{ color: var(--muted); font-size:12.5px; }
+
+  .layout{
+    display:grid; grid-template-columns: 1.3fr 1fr; gap: 18px;
+    padding: 18px 24px 40px; max-width:1400px; margin:0 auto;
+  }
+  @media (max-width: 980px){ .layout{ grid-template-columns: 1fr; } }
+
+  .card{ background: var(--panel); border:1px solid var(--line); border-radius:10px; padding: 16px 18px; }
+  .card + .card{ margin-top:16px; }
+  .card h2{ font-size: 13px; margin: 0 0 12px; color: var(--muted); font-weight:600; }
+
+  .status-banner{
+    display:flex; align-items:center; gap:14px;
+    padding: 16px 18px; border-radius:10px; border:1px solid var(--line);
+    background: var(--panel-2); transition: background .3s, border-color .3s;
+  }
+  .status-banner .dot{ width:14px; height:14px; border-radius:50%; background: var(--muted); flex-shrink:0; }
+  .status-banner.normal{ border-color: #245c3d; background: var(--ok-dim); }
+  .status-banner.normal .dot{ background: var(--ok); }
+  .status-banner.warn{ border-color: #6b5323; background: #2e2412; }
+  .status-banner.warn .dot{ background: var(--warn); }
+  .status-banner.alarm{ border-color: #7a2b24; background: var(--alarm-dim); animation: pulse 1.1s infinite; }
+  .status-banner.alarm .dot{ background: var(--alarm); animation: dotpulse 1.1s infinite; }
+  @keyframes pulse{ 0%,100%{ filter:brightness(1);} 50%{ filter:brightness(1.35);} }
+  @keyframes dotpulse{
+    0%{ box-shadow:0 0 0 0 rgba(224,72,62,.55);}
+    70%{ box-shadow:0 0 0 12px rgba(224,72,62,0);}
+    100%{ box-shadow:0 0 0 0 rgba(224,72,62,0);}
+  }
+  .status-banner .text b{ display:block; font-size:15px; }
+  .status-banner .text span{ color: var(--muted); font-size:12.5px; }
+
+  video{ display:none; }
+  .preview-wrap{ position:relative; width:100%; border-radius:8px; overflow:hidden; border:1px solid var(--line); background:#000; }
+  canvas#previewCanvas{ display:block; width:100%; height:auto; cursor:crosshair; }
+  .roi-badge{ position:absolute; border:2px solid var(--warn); background: rgba(232,169,68,0.12); pointer-events:none; }
+  .roi-badge .tag{
+    position:absolute; top:-20px; left:-2px; font-size:11px; font-family:var(--mono);
+    background: rgba(0,0,0,.75); color:#fff; padding:1px 6px; border-radius:4px; white-space:nowrap;
+  }
+  .roi-badge.alarm{ animation: pulse 1.1s infinite; }
+
+  .btn{
+    appearance:none; border:1px solid var(--line); background: var(--panel-2); color: var(--text);
+    padding: 9px 14px; border-radius:7px; font-size:13px; cursor:pointer; font-family:var(--sans);
+    transition: border-color .15s, background .15s;
+  }
+  .btn:hover{ border-color:#455361; }
+  .btn:disabled{ opacity:.4; cursor:not-allowed; }
+  .btn.primary{ background:#2a4a6b; border-color:#3a638e; }
+  .btn.primary:hover{ border-color:#4d7cab; }
+  .btn.danger{ background:#4a2422; border-color:#6e332e; }
+  .btn.danger:hover{ border-color:#8a3f38; }
+  .btn.ok{ background:#1f3d2c; border-color:#2c5a41; }
+  .btn.small{ padding:5px 9px; font-size:12px; }
+  .btn-row{ display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+
+  .field{ margin-bottom:12px; }
+  .field label{ display:block; font-size:12.5px; color: var(--muted); margin-bottom:5px; }
+  .field input[type=text], .field input[type=number]{
+    width:100%; background: var(--panel-2); border:1px solid var(--line); color:var(--text);
+    padding:8px 10px; border-radius:6px; font-family: var(--mono); font-size:13px;
+  }
+  .field input[type=range]{ width:100%; }
+  .field .row{ display:flex; justify-content:space-between; font-size:12px; color:var(--muted); }
+  .hint{ color: var(--muted); font-size:12px; line-height:1.5; margin-top:4px; }
+
+  .metric-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .metric{ background:var(--panel-2); border:1px solid var(--line); border-radius:7px; padding:10px 12px; }
+  .metric .k{ color:var(--muted); font-size:11.5px; }
+  .metric .v{ font-family: var(--mono); font-size:19px; margin-top:2px; }
+
+  .zone-row{
+    display:flex; align-items:center; gap:8px; background:var(--panel-2); border:1px solid var(--line);
+    border-radius:7px; padding:8px 10px; margin-top:8px;
+  }
+  .zone-row .swatch{ width:12px; height:12px; border-radius:3px; flex-shrink:0; }
+  .zone-row input[type=text]{
+    flex:1; background:transparent; border:1px solid transparent; color:var(--text);
+    font-family:var(--sans); font-size:13px; padding:4px 6px; border-radius:5px;
+  }
+  .zone-row input[type=text]:hover, .zone-row input[type=text]:focus{ border-color: var(--line); background: var(--panel); }
+  .zone-row .dims{ color:var(--muted); font-size:11px; font-family:var(--mono); white-space:nowrap; }
+  .zone-row.alarm{ border-color:#7a2b24; }
+  .zone-row .zstate{ font-size:11px; font-family:var(--mono); padding:2px 7px; border-radius:5px; white-space:nowrap; }
+  .zone-row .zstate.normal{ background:var(--ok-dim); color:var(--ok); }
+  .zone-row .zstate.alarm{ background:var(--alarm-dim); color:var(--alarm); }
+  .zone-row .zstate.pending{ background:#2e2412; color:var(--warn); }
+
+  #log{
+    background:#0d1319; border:1px solid var(--line); border-radius:7px;
+    padding:10px 12px; height:180px; overflow-y:auto; font-family:var(--mono); font-size:12px; line-height:1.6;
+  }
+  #log .e{ color: var(--muted); }
+  #log .e.ok{ color: var(--ok); }
+  #log .e.al{ color: var(--alarm); }
+  #log .e.wa{ color: var(--warn); }
+
+  .step-num{
+    display:inline-flex; align-items:center; justify-content:center;
+    width:20px; height:20px; border-radius:50%; background:var(--panel-2); border:1px solid var(--line);
+    font-size:11px; color:var(--muted); margin-right:8px;
+  }
+  .toggle-row{ display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+  .toggle-row input{ width:16px; height:16px; }
+  .badge{ font-family:var(--mono); font-size:11px; padding:2px 7px; border-radius:5px; background:var(--panel-2); border:1px solid var(--line); color:var(--muted); }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Vigilante de Bypass — Caudalímetro</h1>
+    <div class="sub">Observa una o varias zonas de la pantalla del SCADA y avisa cuando detecta actividad</div>
+  </div>
+  <span class="badge" id="permBadge">Captura: detenida</span>
+</header>
+
+<div class="layout">
+
+  <div>
+    <div class="status-banner normal" id="statusBanner">
+      <div class="dot"></div>
+      <div class="text">
+        <b id="statusTitle">Sin vigilancia activa</b>
+        <span id="statusSub">Inicia la captura de pantalla para empezar</span>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+      <h2><span class="step-num">1</span>Captura de pantalla</h2>
+      <p class="hint">Comparte la pantalla o ventana donde se ve el SCADA. El navegador te lo pedirá de nuevo cada vez que abras esta app (por seguridad, no se puede recordar el permiso).</p>
+      <div class="btn-row">
+        <button class="btn primary" id="btnShare">Compartir pantalla del SCADA</button>
+        <button class="btn" id="btnFreeze" disabled>Congelar fotograma para marcar zonas</button>
+      </div>
+
+      <div class="preview-wrap" style="margin-top:14px; display:none;" id="previewWrap">
+        <canvas id="previewCanvas"></canvas>
+        <div id="roiOverlays"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2><span class="step-num">2</span>Zonas a vigilar (una por cada válvula/caudalímetro)</h2>
+      <p class="hint">Con el fotograma congelado, dibuja un rectángulo sobre cada indicador o contador que quieras vigilar. Puedes dibujar tantos como necesites, uno detrás de otro; cada uno se añade como una zona independiente.</p>
+      <div id="zoneList"></div>
+      <div class="btn-row">
+        <button class="btn danger" id="btnClearAllZones" disabled>Borrar todas las zonas</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2><span class="step-num">3</span>Calibrar estado normal (todas las válvulas cerradas)</h2>
+      <p class="hint">Con todas las válvulas en su posición normal (cerradas) y las zonas ya marcadas, pulsa este botón: calibra TODAS las zonas a la vez. Si el fotograma estaba congelado, se reanuda solo.</p>
+      <div class="btn-row">
+        <button class="btn ok" id="btnCalibrate" disabled>Calibrar todas las zonas ahora</button>
+        <button class="btn primary" id="btnStartMonitor" disabled>Iniciar vigilancia</button>
+        <button class="btn danger" id="btnStopMonitor" disabled>Detener vigilancia</button>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>Lectura en directo</h2>
+      <div class="metric-grid">
+        <div class="metric"><div class="k">Umbral de alarma</div><div class="v" id="mThresholdShow">—</div></div>
+        <div class="metric"><div class="k">Última comprobación</div><div class="v" id="mLast">—</div></div>
+      </div>
+      <div id="zoneMetrics"></div>
+      <div class="btn-row">
+        <button class="btn" id="btnAck" disabled>Silenciar / confirmar avisos</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Sensibilidad (aplica a todas las zonas)</h2>
+      <div class="field">
+        <label>Umbral de diferencia (más bajo = más sensible)</label>
+        <input type="range" id="threshold" min="5" max="150" value="30">
+        <div class="row"><span>Sensible</span><span id="thresholdVal">30</span><span>Poco sensible</span></div>
+      </div>
+      <div class="field">
+        <label>Comprobaciones seguidas necesarias para confirmar alarma</label>
+        <input type="range" id="streakNeeded" min="1" max="10" value="3">
+        <div class="row"><span>1</span><span id="streakVal">3</span><span>10</span></div>
+      </div>
+      <div class="field">
+        <label>Intervalo entre comprobaciones (segundos)</label>
+        <input type="range" id="interval" min="1" max="10" value="2">
+        <div class="row"><span>1 s</span><span id="intervalVal">2 s</span><span>10 s</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Aviso por Telegram</h2>
+      <div class="toggle-row">
+        <input type="checkbox" id="telegramEnabled">
+        <label for="telegramEnabled" style="margin:0; color:var(--text); font-size:13px;">Enviar aviso a Telegram cuando salte cualquier alarma</label>
+      </div>
+      <div class="field"><label>Token del bot</label><input type="text" id="tgToken" placeholder="123456789:AA..."></div>
+      <div class="field"><label>Chat ID</label><input type="text" id="tgChatId" placeholder="Ej: 987654321"></div>
+      <div class="field"><label>Recordatorio si sigue en alarma (minutos, 0 = solo una vez)</label><input type="number" id="tgReminder" min="0" value="10"></div>
+      <div class="btn-row"><button class="btn" id="btnTgTest">Enviar mensaje de prueba</button></div>
+      <p class="hint">Para crear el bot: habla con <b>@BotFather</b> en Telegram, crea un bot y copia el token. Para el Chat ID, escribe algo a tu bot y abre <span style="font-family:var(--mono)">https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</span> en el navegador; ahí aparece tu chat_id.</p>
+    </div>
+
+    <div class="card">
+      <h2>Aviso por WhatsApp (CallMeBot)</h2>
+      <div class="toggle-row">
+        <input type="checkbox" id="waEnabled">
+        <label for="waEnabled" style="margin:0; color:var(--text); font-size:13px;">Enviar aviso a WhatsApp cuando salte cualquier alarma</label>
+      </div>
+      <div class="field"><label>Tu número de WhatsApp (con prefijo, ej: +34600123456)</label><input type="text" id="waPhone" placeholder="+34600123456"></div>
+      <div class="field"><label>API Key de CallMeBot</label><input type="text" id="waApiKey" placeholder="123456"></div>
+      <div class="btn-row"><button class="btn" id="btnWaTest">Enviar mensaje de prueba</button></div>
+      <p class="hint">CallMeBot es un servicio gratuito no oficial (no es de WhatsApp/Meta), pensado para uso personal. Activación: guarda <b>+34 644 51 95 23</b> como contacto, envíale por WhatsApp <span style="font-family:var(--mono)">I allow callmebot to send me messages</span>, y te dará tu API Key.</p>
+    </div>
+
+    <div class="card">
+      <h2>Aviso por email (Gmail, vía EmailJS)</h2>
+      <div class="toggle-row">
+        <input type="checkbox" id="gmailEnabled">
+        <label for="gmailEnabled" style="margin:0; color:var(--text); font-size:13px;">Enviar aviso por email cuando salte cualquier alarma</label>
+      </div>
+      <div class="field"><label>Email de destino</label><input type="text" id="gmailTo" placeholder="tu.correo@gmail.com"></div>
+      <div class="field"><label>Public Key de EmailJS</label><input type="text" id="gmailPublicKey" placeholder="Account &gt; General &gt; Public Key"></div>
+      <div class="field"><label>Service ID</label><input type="text" id="gmailServiceId" placeholder="Email Services &gt; tu servicio Gmail"></div>
+      <div class="field"><label>Template ID</label><input type="text" id="gmailTemplateId" placeholder="Email Templates &gt; tu plantilla"></div>
+      <div class="btn-row"><button class="btn" id="btnGmailTest">Enviar email de prueba</button></div>
+      <p class="hint">Usa <b>EmailJS</b> (gratis hasta un límite mensual, de sobra para alarmas). Plantilla con variables <span style="font-family:var(--mono)">{{to_email}}</span> y <span style="font-family:var(--mono)">{{message}}</span>. Para avisar a más cuentas, añádelas en el campo "Bcc" de la propia plantilla de EmailJS.</p>
+    </div>
+
+    <div class="card">
+      <h2>Aviso sonoro en este PC</h2>
+      <div class="toggle-row">
+        <input type="checkbox" id="soundEnabled" checked>
+        <label for="soundEnabled" style="margin:0; color:var(--text); font-size:13px;">Reproducir sonido de alarma en bucle mientras haya alguna zona activa</label>
+      </div>
+      <div class="toggle-row">
+        <input type="checkbox" id="browserNotifEnabled" checked>
+        <label for="browserNotifEnabled" style="margin:0; color:var(--text); font-size:13px;">Mostrar notificación del sistema (Windows/Chrome)</label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Registro de eventos</h2>
+      <div id="log"></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  const GRID = 8;
+  const PALETTE = ['#e8a944','#3ecf7e','#5aa9e6','#e0483e','#c792ea','#4dd0e1','#f7a072','#9ccc65'];
+
+  // ---------- Estado global ----------
+  let stream = null;
+  let videoEl = document.createElement('video');
+  videoEl.muted = true; videoEl.playsInline = true;
+  let previewCanvas = document.getElementById('previewCanvas');
+  let ctx = previewCanvas.getContext('2d', { willReadFrequently:true });
+  let nativeW = 0, nativeH = 0;
+  let frozen = false;
+
+  let zones = [];        // {id, label, x,y,w,h, baseline, streak, state, acknowledged, diff}
+  let nextZoneId = 1;
+  let monitorTimer = null;
+  let monitoring = false;
+
+  let lastTelegramSent = 0;
+  let lastWhatsAppSent = 0;
+  let lastGmailSent = 0;
+
+  // ---------- Elementos ----------
+  const btnShare = document.getElementById('btnShare');
+  const btnFreeze = document.getElementById('btnFreeze');
+  const btnClearAllZones = document.getElementById('btnClearAllZones');
+  const btnCalibrate = document.getElementById('btnCalibrate');
+  const btnStartMonitor = document.getElementById('btnStartMonitor');
+  const btnStopMonitor = document.getElementById('btnStopMonitor');
+  const btnAck = document.getElementById('btnAck');
+  const btnTgTest = document.getElementById('btnTgTest');
+  const previewWrap = document.getElementById('previewWrap');
+  const roiOverlays = document.getElementById('roiOverlays');
+  const zoneListEl = document.getElementById('zoneList');
+  const zoneMetricsEl = document.getElementById('zoneMetrics');
+  const permBadge = document.getElementById('permBadge');
+
+  const statusBanner = document.getElementById('statusBanner');
+  const statusTitle = document.getElementById('statusTitle');
+  const statusSub = document.getElementById('statusSub');
+
+  const mThresholdShow = document.getElementById('mThresholdShow');
+  const mLast = document.getElementById('mLast');
+
+  const thresholdInput = document.getElementById('threshold');
+  const thresholdVal = document.getElementById('thresholdVal');
+  const streakNeededInput = document.getElementById('streakNeeded');
+  const streakVal = document.getElementById('streakVal');
+  const intervalInput = document.getElementById('interval');
+  const intervalVal = document.getElementById('intervalVal');
+
+  const telegramEnabled = document.getElementById('telegramEnabled');
+  const tgToken = document.getElementById('tgToken');
+  const tgChatId = document.getElementById('tgChatId');
+  const tgReminder = document.getElementById('tgReminder');
+  const waEnabled = document.getElementById('waEnabled');
+  const waPhone = document.getElementById('waPhone');
+  const waApiKey = document.getElementById('waApiKey');
+  const btnWaTest = document.getElementById('btnWaTest');
+  const gmailEnabled = document.getElementById('gmailEnabled');
+  const gmailTo = document.getElementById('gmailTo');
+  const gmailPublicKey = document.getElementById('gmailPublicKey');
+  const gmailServiceId = document.getElementById('gmailServiceId');
+  const gmailTemplateId = document.getElementById('gmailTemplateId');
+  const btnGmailTest = document.getElementById('btnGmailTest');
+  const soundEnabled = document.getElementById('soundEnabled');
+  const browserNotifEnabled = document.getElementById('browserNotifEnabled');
+  const logEl = document.getElementById('log');
+
+  // ---------- Persistencia sencilla en localStorage (solo ajustes, no las zonas) ----------
+  const SETTINGS_KEY = 'vigilante-bypass-settings-v2';
+  function loadSettings(){
+    try{
+      const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+      if (s.threshold) thresholdInput.value = s.threshold;
+      if (s.streakNeeded) streakNeededInput.value = s.streakNeeded;
+      if (s.interval) intervalInput.value = s.interval;
+      if (typeof s.telegramEnabled === 'boolean') telegramEnabled.checked = s.telegramEnabled;
+      if (s.tgToken) tgToken.value = s.tgToken;
+      if (s.tgChatId) tgChatId.value = s.tgChatId;
+      if (s.tgReminder != null) tgReminder.value = s.tgReminder;
+      if (typeof s.waEnabled === 'boolean') waEnabled.checked = s.waEnabled;
+      if (s.waPhone) waPhone.value = s.waPhone;
+      if (s.waApiKey) waApiKey.value = s.waApiKey;
+      if (typeof s.gmailEnabled === 'boolean') gmailEnabled.checked = s.gmailEnabled;
+      if (s.gmailTo) gmailTo.value = s.gmailTo;
+      if (s.gmailPublicKey) gmailPublicKey.value = s.gmailPublicKey;
+      if (s.gmailServiceId) gmailServiceId.value = s.gmailServiceId;
+      if (s.gmailTemplateId) gmailTemplateId.value = s.gmailTemplateId;
+      if (typeof s.soundEnabled === 'boolean') soundEnabled.checked = s.soundEnabled;
+      if (typeof s.browserNotifEnabled === 'boolean') browserNotifEnabled.checked = s.browserNotifEnabled;
+    }catch(e){}
+    syncSliderLabels();
+  }
+  function saveSettings(){
+    const s = {
+      threshold: thresholdInput.value, streakNeeded: streakNeededInput.value, interval: intervalInput.value,
+      telegramEnabled: telegramEnabled.checked, tgToken: tgToken.value, tgChatId: tgChatId.value, tgReminder: tgReminder.value,
+      waEnabled: waEnabled.checked, waPhone: waPhone.value, waApiKey: waApiKey.value,
+      gmailEnabled: gmailEnabled.checked, gmailTo: gmailTo.value, gmailPublicKey: gmailPublicKey.value,
+      gmailServiceId: gmailServiceId.value, gmailTemplateId: gmailTemplateId.value,
+      soundEnabled: soundEnabled.checked, browserNotifEnabled: browserNotifEnabled.checked,
+    };
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  }
+  [thresholdInput, streakNeededInput, intervalInput, telegramEnabled, tgToken, tgChatId, tgReminder, waEnabled, waPhone, waApiKey, gmailEnabled, gmailTo, gmailPublicKey, gmailServiceId, gmailTemplateId, soundEnabled, browserNotifEnabled]
+    .forEach(el => el.addEventListener('change', saveSettings));
+  function syncSliderLabels(){
+    thresholdVal.textContent = thresholdInput.value;
+    mThresholdShow.textContent = thresholdInput.value;
+    streakVal.textContent = streakNeededInput.value;
+    intervalVal.textContent = intervalInput.value + ' s';
+  }
+  thresholdInput.addEventListener('input', syncSliderLabels);
+  streakNeededInput.addEventListener('input', syncSliderLabels);
+  intervalInput.addEventListener('input', syncSliderLabels);
+
+  // ---------- Log ----------
+  function log(msg, kind){
+    const line = document.createElement('div');
+    line.className = 'e' + (kind ? ' ' + kind : '');
+    const t = new Date().toLocaleTimeString('es-ES');
+    line.textContent = `[${t}] ${msg}`;
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  // ---------- Compartir pantalla ----------
+  btnShare.addEventListener('click', async () => {
+    try{
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 5 } });
+      videoEl.srcObject = stream;
+      await videoEl.play();
+      nativeW = videoEl.videoWidth;
+      nativeH = videoEl.videoHeight;
+      previewCanvas.width = nativeW;
+      previewCanvas.height = nativeH;
+      previewWrap.style.display = 'block';
+      btnFreeze.disabled = false;
+      permBadge.textContent = 'Captura: activa';
+      log('Captura de pantalla iniciada (' + nativeW + '×' + nativeH + ').', 'ok');
+
+      stream.getVideoTracks()[0].addEventListener('ended', () => {
+        log('Se ha detenido el permiso de compartir pantalla. La vigilancia queda inactiva.', 'al');
+        stopMonitoring();
+        permBadge.textContent = 'Captura: detenida';
+        setStatus('idle', 'Captura detenida', 'Vuelve a compartir la pantalla para continuar');
+      });
+
+      drawLiveFrame();
+      renderZoneOverlays();
+    }catch(err){
+      log('No se pudo iniciar la captura: ' + err.message, 'al');
+    }
+  });
+
+  function drawLiveFrame(){
+    if (frozen) return;
+    if (videoEl.readyState >= 2){
+      ctx.drawImage(videoEl, 0, 0, nativeW, nativeH);
+    }
+    requestAnimationFrame(drawLiveFrame);
+  }
+
+  window.addEventListener('resize', renderZoneOverlays);
+
+  // ---------- Congelar fotograma y marcar zonas ----------
+  btnFreeze.addEventListener('click', () => {
+    setFrozen(!frozen);
+    if (frozen) log('Fotograma congelado. Dibuja un rectángulo por cada zona que quieras vigilar.');
+  });
+
+  function setFrozen(v){
+    frozen = v;
+    btnFreeze.textContent = frozen ? 'Reanudar vista en directo' : 'Congelar fotograma para marcar zonas';
+    if (frozen){
+      ctx.drawImage(videoEl, 0, 0, nativeW, nativeH);
+    } else {
+      drawLiveFrame();
+    }
+  }
+
+  let dragging = false, dragStart = null, dragPreviewEl = null;
+  previewCanvas.addEventListener('mousedown', (e) => {
+    if (!frozen) return;
+    dragging = true;
+    dragStart = canvasCoords(e);
+    dragPreviewEl = document.createElement('div');
+    dragPreviewEl.className = 'roi-badge';
+    dragPreviewEl.style.borderColor = '#ffffff';
+    roiOverlays.appendChild(dragPreviewEl);
+  });
+  previewCanvas.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const cur = canvasCoords(e);
+    positionOverlayEl(dragPreviewEl, Math.min(dragStart.x,cur.x), Math.min(dragStart.y,cur.y), Math.abs(cur.x-dragStart.x), Math.abs(cur.y-dragStart.y));
+  });
+  window.addEventListener('mouseup', (e) => {
+    if (!dragging) return;
+    dragging = false;
+    if (dragPreviewEl){ dragPreviewEl.remove(); dragPreviewEl = null; }
+    const cur = canvasCoords(e, true);
+    const x = Math.min(dragStart.x, cur.x);
+    const y = Math.min(dragStart.y, cur.y);
+    const w = Math.abs(cur.x - dragStart.x);
+    const h = Math.abs(cur.y - dragStart.y);
+    if (w > 4 && h > 4){
+      addZone(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+    }
+  });
+
+  function canvasCoords(e, clampToCanvas){
+    const rect = previewCanvas.getBoundingClientRect();
+    const scaleX = previewCanvas.width / rect.width;
+    const scaleY = previewCanvas.height / rect.height;
+    let x = (e.clientX - rect.left) * scaleX;
+    let y = (e.clientY - rect.top) * scaleY;
+    if (clampToCanvas){
+      x = Math.max(0, Math.min(previewCanvas.width, x));
+      y = Math.max(0, Math.min(previewCanvas.height, y));
+    }
+    return { x, y };
+  }
+
+  function positionOverlayEl(el, x, y, w, h){
+    const rect = previewCanvas.getBoundingClientRect();
+    const scaleX = rect.width / previewCanvas.width;
+    const scaleY = rect.height / previewCanvas.height;
+    el.style.left = (x*scaleX) + 'px';
+    el.style.top = (y*scaleY) + 'px';
+    el.style.width = (w*scaleX) + 'px';
+    el.style.height = (h*scaleY) + 'px';
+  }
+
+  // ---------- Gestión de zonas ----------
+  function addZone(x, y, w, h){
+    const zone = {
+      id: nextZoneId++,
+      label: 'Zona ' + zones.length,
+      x, y, w, h,
+      baseline: null, streak: 0, state: 'idle', acknowledged: false, diff: null,
+    };
+    zone.label = 'Zona ' + zones.length; // provisional, corregido abajo tras push
+    zones.push(zone);
+    zone.label = 'Zona ' + zones.length;
+    renderZoneList();
+    renderZoneOverlays();
+    renderZoneMetrics();
+    btnClearAllZones.disabled = false;
+    btnCalibrate.disabled = false;
+    log(`Zona "${zone.label}" añadida (${w}×${h} px).`, 'ok');
+  }
+
+  function removeZone(id){
+    zones = zones.filter(z => z.id !== id);
+    renderZoneList();
+    renderZoneOverlays();
+    renderZoneMetrics();
+    const anyBaseline = zones.some(z => z.baseline);
+    btnClearAllZones.disabled = zones.length === 0;
+    btnCalibrate.disabled = zones.length === 0;
+    btnStartMonitor.disabled = !anyBaseline || monitoring;
+    log('Zona eliminada.');
+  }
+
+  btnClearAllZones.addEventListener('click', () => {
+    if (monitoring) stopMonitoring();
+    zones = [];
+    renderZoneList();
+    renderZoneOverlays();
+    renderZoneMetrics();
+    btnClearAllZones.disabled = true;
+    btnCalibrate.disabled = true;
+    btnStartMonitor.disabled = true;
+    log('Todas las zonas han sido borradas.');
+  });
+
+  function renderZoneList(){
+    zoneListEl.innerHTML = '';
+    zones.forEach((z, i) => {
+      const row = document.createElement('div');
+      row.className = 'zone-row' + (z.state === 'alarm' ? ' alarm' : '');
+      const swatch = document.createElement('div');
+      swatch.className = 'swatch';
+      swatch.style.background = PALETTE[i % PALETTE.length];
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = z.label;
+      input.addEventListener('change', () => { z.label = input.value.trim() || z.label; renderZoneOverlays(); renderZoneMetrics(); });
+      const dims = document.createElement('span');
+      dims.className = 'dims';
+      dims.textContent = `${z.w}×${z.h}`;
+      const state = document.createElement('span');
+      state.className = 'zstate ' + (z.baseline ? (z.state === 'alarm' ? 'alarm' : 'normal') : 'pending');
+      state.textContent = z.baseline ? (z.state === 'alarm' ? 'ALARMA' : 'ok') : 'sin calibrar';
+      const del = document.createElement('button');
+      del.className = 'btn small danger';
+      del.textContent = '✕';
+      del.title = 'Eliminar esta zona';
+      del.addEventListener('click', () => removeZone(z.id));
+      row.append(swatch, input, dims, state, del);
+      zoneListEl.appendChild(row);
+    });
+  }
+
+  function renderZoneOverlays(){
+    roiOverlays.innerHTML = '';
+    zones.forEach((z, i) => {
+      const el = document.createElement('div');
+      el.className = 'roi-badge' + (z.state === 'alarm' ? ' alarm' : '');
+      el.style.borderColor = PALETTE[i % PALETTE.length];
+      el.style.background = 'transparent';
+      positionOverlayEl(el, z.x, z.y, z.w, z.h);
+      const tag = document.createElement('div');
+      tag.className = 'tag';
+      tag.style.background = PALETTE[i % PALETTE.length];
+      tag.style.color = '#12181f';
+      tag.textContent = z.label;
+      el.appendChild(tag);
+      roiOverlays.appendChild(el);
+    });
+  }
+
+  function renderZoneMetrics(){
+    zoneMetricsEl.innerHTML = '';
+    if (!zones.length){
+      zoneMetricsEl.innerHTML = '<p class="hint">Todavía no hay zonas marcadas.</p>';
+      return;
+    }
+    zones.forEach((z, i) => {
+      const row = document.createElement('div');
+      row.className = 'metric';
+      row.style.marginTop = '8px';
+      const diffTxt = z.diff == null ? '—' : z.diff.toFixed(1);
+      row.innerHTML = `<div class="k" style="color:${PALETTE[i % PALETTE.length]}">${z.label}${z.baseline ? '' : ' (sin calibrar)'}</div>
+        <div class="v">${diffTxt} <span style="font-size:11px; color:var(--muted);">— racha: ${z.streak}${z.state==='alarm' ? ' — ⚠️ ALARMA' : ''}</span></div>`;
+      zoneMetricsEl.appendChild(row);
+    });
+  }
+
+  // ---------- Vector de color por rejilla (para comparar una zona) ----------
+  function getZoneVector(z){
+    if (!frozen) ctx.drawImage(videoEl, 0, 0, nativeW, nativeH);
+    const data = ctx.getImageData(z.x, z.y, z.w, z.h).data;
+    const vec = new Array(GRID*GRID*3).fill(0);
+    const counts = new Array(GRID*GRID).fill(0);
+    const cellW = z.w / GRID, cellH = z.h / GRID;
+    for (let py = 0; py < z.h; py++){
+      const gy = Math.min(GRID-1, Math.floor(py / cellH));
+      for (let px = 0; px < z.w; px++){
+        const gx = Math.min(GRID-1, Math.floor(px / cellW));
+        const idx = (py * z.w + px) * 4;
+        const r = data[idx], g = data[idx+1], b = data[idx+2];
+        if (!isFinite(r+g+b)) continue;
+        const cell = gy*GRID + gx;
+        vec[cell*3] += r; vec[cell*3+1] += g; vec[cell*3+2] += b;
+        counts[cell]++;
+      }
+    }
+    for (let c=0;c<GRID*GRID;c++){
+      if (counts[c]){ vec[c*3]/=counts[c]; vec[c*3+1]/=counts[c]; vec[c*3+2]/=counts[c]; }
+    }
+    return vec;
+  }
+
+  function vectorDiff(a, b){
+    const cellDiffs = [];
+    for (let c=0;c<GRID*GRID;c++){
+      const dr = Math.abs(a[c*3]-b[c*3]);
+      const dg = Math.abs(a[c*3+1]-b[c*3+1]);
+      const db = Math.abs(a[c*3+2]-b[c*3+2]);
+      const d = (dr+dg+db)/3;
+      if (isFinite(d)) cellDiffs.push(d);
+    }
+    if (!cellDiffs.length) return 0;
+    cellDiffs.sort((x,y) => y-x);
+    const top = cellDiffs.slice(0, Math.min(3, cellDiffs.length));
+    return top.reduce((s,v) => s+v, 0) / top.length;
+  }
+
+  // ---------- Calibración ----------
+  btnCalibrate.addEventListener('click', () => {
+    if (!zones.length) return;
+    if (frozen) setFrozen(false);
+    setTimeout(() => {
+      let ok = 0;
+      zones.forEach(z => {
+        z.baseline = getZoneVector(z);
+        z.streak = 0; z.state = 'normal'; z.acknowledged = false;
+        if (z.baseline) ok++;
+      });
+      renderZoneList();
+      renderZoneMetrics();
+      if (ok > 0){
+        btnStartMonitor.disabled = false;
+        log(`Estado normal calibrado en ${ok} zona(s).`, 'ok');
+        setStatus('normal', 'Calibrado — sin vigilancia activa', 'Pulsa "Iniciar vigilancia" para empezar a comprobar');
+      }
+    }, 150);
+  });
+
+  // ---------- Vigilancia ----------
+  btnStartMonitor.addEventListener('click', () => {
+    if (frozen) setFrozen(false);
+    startMonitoring();
+  });
+  btnStopMonitor.addEventListener('click', stopMonitoring);
+  btnAck.addEventListener('click', acknowledgeAlarms);
+
+  function startMonitoring(){
+    if (!zones.some(z => z.baseline)) return;
+    monitoring = true;
+    btnStartMonitor.disabled = true;
+    btnStopMonitor.disabled = false;
+    btnAck.disabled = true;
+    setStatus('normal', 'Vigilando', `Comprobando ${zones.length} zona(s) periódicamente`);
+    log('Vigilancia iniciada.', 'ok');
+    scheduleCheck();
+  }
+
+  function scheduleCheck(){
+    const secs = parseInt(intervalInput.value, 10) || 2;
+    monitorTimer = setTimeout(runCheck, secs * 1000);
+  }
+
+  function stopMonitoring(){
+    monitoring = false;
+    clearTimeout(monitorTimer);
+    monitorTimer = null;
+    btnStartMonitor.disabled = !zones.some(z => z.baseline);
+    btnStopMonitor.disabled = true;
+    btnAck.disabled = true;
+    stopAlarmSound();
+    setStatus('idle', 'Vigilancia detenida', zones.some(z => z.baseline) ? 'Pulsa "Iniciar vigilancia" para reanudar' : 'Marca zonas y calibra antes de iniciar');
+    log('Vigilancia detenida.');
+  }
+
+  function runCheck(){
+    const threshold = parseFloat(thresholdInput.value);
+    const needed = parseInt(streakNeededInput.value, 10);
+    const newlyTriggered = [];
+    let anyAlarm = false, anyAckPending = false;
+
+    zones.forEach(z => {
+      if (!z.baseline) return;
+      const vec = getZoneVector(z);
+      const diff = vectorDiff(vec, z.baseline);
+      z.diff = diff;
+
+      if (diff > threshold){
+        z.streak++;
+      } else {
+        z.streak = 0;
+        if (z.state === 'alarm' && z.acknowledged){
+          z.state = 'normal'; z.acknowledged = false;
+          log(`"${z.label}" ha vuelto al estado normal.`, 'ok');
+        } else if (z.state !== 'alarm'){
+          z.state = 'normal';
+        }
+      }
+
+      if (z.streak >= needed && z.state !== 'alarm'){
+        z.state = 'alarm'; z.acknowledged = false;
+        newlyTriggered.push(z);
+      }
+      if (z.state === 'alarm'){ anyAlarm = true; if (!z.acknowledged) anyAckPending = true; }
+    });
+
+    mLast.textContent = new Date().toLocaleTimeString('es-ES');
+    renderZoneList();
+    renderZoneMetrics();
+    renderZoneOverlays();
+
+    if (newlyTriggered.length){
+      triggerAlarm(newlyTriggered);
+    } else if (anyAckPending){
+      maybeSendReminder();
+    }
+
+    if (anyAlarm){
+      const names = zones.filter(z => z.state === 'alarm').map(z => z.label).join(', ');
+      setStatus('alarm', '¡Posible bypass activo!', 'Zona(s) en alarma: ' + names);
+    } else if (monitoring){
+      setStatus('normal', 'Vigilando', `Comprobando ${zones.length} zona(s) periódicamente`);
+    }
+    btnAck.disabled = !anyAckPending;
+
+    monitorTimer = setTimeout(runCheck, (parseInt(intervalInput.value,10)||2) * 1000);
+  }
+
+  function triggerAlarm(triggeredZones){
+    const names = triggeredZones.map(z => z.label).join(', ');
+    log('ALARMA: actividad detectada en ' + names + '.', 'al');
+    if (soundEnabled.checked) playAlarmSound();
+    if (browserNotifEnabled.checked) sendBrowserNotification(names);
+    const msg = 'Posible BYPASS activo en la EDAR: se ha detectado actividad en ' + names + '.';
+    if (telegramEnabled.checked) sendTelegram('⚠️ ' + msg);
+    if (waEnabled.checked) sendWhatsApp('⚠️ ' + msg);
+    if (gmailEnabled.checked) sendGmail(msg);
+    lastTelegramSent = Date.now(); lastWhatsAppSent = Date.now(); lastGmailSent = Date.now();
+  }
+
+  function maybeSendReminder(){
+    const mins = parseFloat(tgReminder.value);
+    if (!mins || mins <= 0) return;
+    const names = zones.filter(z => z.state === 'alarm' && !z.acknowledged).map(z => z.label).join(', ');
+    if (!names) return;
+    const msg = 'Recordatorio: sigue(n) en alarma sin confirmar: ' + names + '.';
+    if (telegramEnabled.checked && Date.now() - lastTelegramSent >= mins * 60 * 1000){
+      sendTelegram('⚠️ ' + msg); lastTelegramSent = Date.now();
+    }
+    if (waEnabled.checked && Date.now() - lastWhatsAppSent >= mins * 60 * 1000){
+      sendWhatsApp('⚠️ ' + msg); lastWhatsAppSent = Date.now();
+    }
+    if (gmailEnabled.checked && Date.now() - lastGmailSent >= mins * 60 * 1000){
+      sendGmail(msg); lastGmailSent = Date.now();
+    }
+  }
+
+  function acknowledgeAlarms(){
+    zones.forEach(z => { if (z.state === 'alarm') z.acknowledged = true; });
+    btnAck.disabled = true;
+    stopAlarmSound();
+    setStatus('warn', 'Avisos confirmados', 'Sonido silenciado. Se sigue vigilando hasta que cada zona vuelva a la normalidad');
+    log('Avisos confirmados/silenciados por el operador.');
+    renderZoneList();
+  }
+
+  function setStatus(kind, title, sub){
+    statusBanner.className = 'status-banner ' + (kind === 'idle' ? '' : kind);
+    statusTitle.textContent = title;
+    statusSub.textContent = sub;
+  }
+
+  // ---------- Sonido ----------
+  let audioCtx = null;
+  let oscInterval = null;
+  function playAlarmSound(){
+    stopAlarmSound();
+    try{
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const beep = () => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'square'; osc.frequency.value = 880; gain.gain.value = 0.15;
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.35);
+      };
+      beep();
+      oscInterval = setInterval(beep, 900);
+    }catch(e){ log('No se pudo reproducir el sonido: ' + e.message, 'wa'); }
+  }
+  function stopAlarmSound(){
+    if (oscInterval){ clearInterval(oscInterval); oscInterval = null; }
+    if (audioCtx){ audioCtx.close(); audioCtx = null; }
+  }
+
+  // ---------- Notificación del navegador ----------
+  function sendBrowserNotification(names){
+    if (!('Notification' in window)) return;
+    const body = 'Actividad detectada en: ' + names;
+    if (Notification.permission === 'granted'){
+      new Notification('⚠️ Posible bypass activo', { body });
+    } else if (Notification.permission !== 'denied'){
+      Notification.requestPermission().then(p => { if (p === 'granted') new Notification('⚠️ Posible bypass activo', { body }); });
+    }
+  }
+
+  // ---------- Telegram ----------
+  async function sendTelegram(text){
+    const token = tgToken.value.trim();
+    const chatId = tgChatId.value.trim();
+    if (!token || !chatId){ log('No se ha enviado el aviso a Telegram: falta el token o el chat ID.', 'wa'); return; }
+    try{
+      const url = `https://api.telegram.org/bot${token}/sendMessage?chat_id=${encodeURIComponent(chatId)}&text=${encodeURIComponent(text)}`;
+      const res = await fetch(url);
+      const body = await res.json();
+      if (body.ok) log('Aviso enviado a Telegram.', 'ok');
+      else log('Telegram respondió con un error: ' + (body.description || 'desconocido'), 'al');
+    }catch(e){ log('No se pudo contactar con Telegram: ' + e.message, 'al'); }
+  }
+  btnTgTest.addEventListener('click', () => sendTelegram('✅ Mensaje de prueba desde el Vigilante de Bypass.'));
+
+  // ---------- WhatsApp (vía CallMeBot) ----------
+  async function sendWhatsApp(text){
+    const phone = waPhone.value.trim();
+    const apikey = waApiKey.value.trim();
+    if (!phone || !apikey){ log('No se ha enviado el aviso a WhatsApp: falta el número o la API Key.', 'wa'); return; }
+    try{
+      const url = `https://api.callmebot.com/whatsapp.php?phone=${encodeURIComponent(phone)}&text=${encodeURIComponent(text)}&apikey=${encodeURIComponent(apikey)}`;
+      await fetch(url, { mode: 'no-cors' });
+      log('Aviso enviado a WhatsApp (CallMeBot). No se puede confirmar la entrega desde aquí — revisa el móvil.', 'ok');
+    }catch(e){ log('No se pudo contactar con CallMeBot: ' + e.message, 'al'); }
+  }
+  btnWaTest.addEventListener('click', () => sendWhatsApp('✅ Mensaje de prueba desde el Vigilante de Bypass.'));
+
+  // ---------- Email (Gmail vía EmailJS) ----------
+  async function sendGmail(text){
+    const to = gmailTo.value.trim();
+    const publicKey = gmailPublicKey.value.trim();
+    const serviceId = gmailServiceId.value.trim();
+    const templateId = gmailTemplateId.value.trim();
+    if (!to || !publicKey || !serviceId || !templateId){ log('No se ha enviado el aviso por email: falta completar la configuración de EmailJS.', 'wa'); return; }
+    if (typeof emailjs === 'undefined'){ log('No se pudo cargar la librería de email (revisa la conexión a internet).', 'al'); return; }
+    try{
+      await emailjs.send(serviceId, templateId, { to_email: to, message: text, time: new Date().toLocaleString('es-ES') }, publicKey);
+      log('Aviso enviado por email a ' + to + '.', 'ok');
+    }catch(e){ log('No se pudo enviar el email: ' + (e && e.text ? e.text : JSON.stringify(e)), 'al'); }
+  }
+  btnGmailTest.addEventListener('click', () => sendGmail('✅ Mensaje de prueba desde el Vigilante de Bypass.'));
+
+  // ---------- Init ----------
+  loadSettings();
+  renderZoneMetrics();
+  log('Aplicación cargada. Comparte la pantalla del SCADA para empezar.');
+
+  // Registro del service worker (necesario para que Chrome ofrezca "Instalar")
+  if ('serviceWorker' in navigator){
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+})();
+</script>
+</body>
+</html>

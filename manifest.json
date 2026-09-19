@@ -2,7 +2,7 @@
   "name": "Vigilante de Bypass — EDAR",
   "short_name": "Vigilante Bypass",
   "description": "Vigila zonas de la pantalla del SCADA y avisa cuando detecta actividad de bypass",
-  "start_url": "./vigilante-bypass.html",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "background_color": "#12181f",

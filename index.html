@@ -119,6 +119,11 @@
   }
   .zone-row input[type=text]:hover, .zone-row input[type=text]:focus{ border-color: var(--line); background: var(--panel); }
   .zone-row .dims{ color:var(--muted); font-size:11px; font-family:var(--mono); white-space:nowrap; }
+  .zone-row select, .field select{
+    background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:5px;
+    font-size:12px; padding:4px 6px; font-family:var(--sans);
+  }
+  .field select{ width:100%; padding:8px 10px; font-size:13px; }
   .zone-row.alarm{ border-color:#7a2b24; }
   .zone-row .zstate{ font-size:11px; font-family:var(--mono); padding:2px 7px; border-radius:5px; white-space:nowrap; }
   .zone-row .zstate.normal{ background:var(--ok-dim); color:var(--ok); }
@@ -182,6 +187,13 @@
     <div class="card">
       <h2><span class="step-num">2</span>Zonas a vigilar (una por cada válvula/caudalímetro)</h2>
       <p class="hint">Con el fotograma congelado, dibuja un rectángulo sobre cada indicador o contador que quieras vigilar. Puedes dibujar tantos como necesites, uno detrás de otro; cada uno se añade como una zona independiente.</p>
+      <div class="field" style="margin-top:10px;">
+        <label>Tipo de la próxima zona que dibujes</label>
+        <select id="newZoneMode">
+          <option value="cambio">Cambio — avisa si la zona cambia (válvulas de bypass, caudalímetros)</option>
+          <option value="rojo">Solo rojo — avisa únicamente si se pone roja (fallo de bomba); ignora el verde</option>
+        </select>
+      </div>
       <div id="zoneList"></div>
       <div class="btn-row">
         <button class="btn danger" id="btnClearAllZones" disabled>Borrar todas las zonas</button>
@@ -190,7 +202,7 @@
 
     <div class="card">
       <h2><span class="step-num">3</span>Calibrar estado normal (todas las válvulas cerradas)</h2>
-      <p class="hint">Con todas las válvulas en su posición normal (cerradas) y las zonas ya marcadas, pulsa este botón: calibra TODAS las zonas a la vez. Si el fotograma estaba congelado, se reanuda solo.</p>
+      <p class="hint">Con todas las válvulas en su posición normal (cerradas), las bombas sin fallo y las zonas ya marcadas, pulsa este botón: calibra TODAS las zonas a la vez. Si el fotograma estaba congelado, se reanuda solo.</p>
       <div class="btn-row">
         <button class="btn ok" id="btnCalibrate" disabled>Calibrar todas las zonas ahora</button>
         <button class="btn primary" id="btnStartMonitor" disabled>Iniciar vigilancia</button>
@@ -218,6 +230,11 @@
         <label>Umbral de diferencia (más bajo = más sensible)</label>
         <input type="range" id="threshold" min="5" max="150" value="30">
         <div class="row"><span>Sensible</span><span id="thresholdVal">30</span><span>Poco sensible</span></div>
+      </div>
+      <div class="field">
+        <label>Umbral para zonas "Solo rojo" (% de la zona que debe ponerse roja)</label>
+        <input type="range" id="redThreshold" min="2" max="60" value="10">
+        <div class="row"><span>Sensible</span><span id="redThresholdVal">10 %</span><span>Poco sensible</span></div>
       </div>
       <div class="field">
         <label>Comprobaciones seguidas necesarias para confirmar alarma</label>
@@ -339,6 +356,9 @@
 
   const thresholdInput = document.getElementById('threshold');
   const thresholdVal = document.getElementById('thresholdVal');
+  const redThresholdInput = document.getElementById('redThreshold');
+  const redThresholdVal = document.getElementById('redThresholdVal');
+  const newZoneMode = document.getElementById('newZoneMode');
   const streakNeededInput = document.getElementById('streakNeeded');
   const streakVal = document.getElementById('streakVal');
   const intervalInput = document.getElementById('interval');
@@ -368,6 +388,7 @@
     try{
       const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
       if (s.threshold) thresholdInput.value = s.threshold;
+      if (s.redThreshold) redThresholdInput.value = s.redThreshold;
       if (s.streakNeeded) streakNeededInput.value = s.streakNeeded;
       if (s.interval) intervalInput.value = s.interval;
       if (typeof s.telegramEnabled === 'boolean') telegramEnabled.checked = s.telegramEnabled;
@@ -389,7 +410,7 @@
   }
   function saveSettings(){
     const s = {
-      threshold: thresholdInput.value, streakNeeded: streakNeededInput.value, interval: intervalInput.value,
+      threshold: thresholdInput.value, redThreshold: redThresholdInput.value, streakNeeded: streakNeededInput.value, interval: intervalInput.value,
       telegramEnabled: telegramEnabled.checked, tgToken: tgToken.value, tgChatId: tgChatId.value, tgReminder: tgReminder.value,
       waEnabled: waEnabled.checked, waPhone: waPhone.value, waApiKey: waApiKey.value,
       gmailEnabled: gmailEnabled.checked, gmailTo: gmailTo.value, gmailPublicKey: gmailPublicKey.value,
@@ -398,15 +419,17 @@
     };
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   }
-  [thresholdInput, streakNeededInput, intervalInput, telegramEnabled, tgToken, tgChatId, tgReminder, waEnabled, waPhone, waApiKey, gmailEnabled, gmailTo, gmailPublicKey, gmailServiceId, gmailTemplateId, soundEnabled, browserNotifEnabled]
+  [thresholdInput, redThresholdInput, streakNeededInput, intervalInput, telegramEnabled, tgToken, tgChatId, tgReminder, waEnabled, waPhone, waApiKey, gmailEnabled, gmailTo, gmailPublicKey, gmailServiceId, gmailTemplateId, soundEnabled, browserNotifEnabled]
     .forEach(el => el.addEventListener('change', saveSettings));
   function syncSliderLabels(){
     thresholdVal.textContent = thresholdInput.value;
+    redThresholdVal.textContent = redThresholdInput.value + ' %';
     mThresholdShow.textContent = thresholdInput.value;
     streakVal.textContent = streakNeededInput.value;
     intervalVal.textContent = intervalInput.value + ' s';
   }
   thresholdInput.addEventListener('input', syncSliderLabels);
+  redThresholdInput.addEventListener('input', syncSliderLabels);
   streakNeededInput.addEventListener('input', syncSliderLabels);
   intervalInput.addEventListener('input', syncSliderLabels);
 
@@ -533,11 +556,11 @@
       id: nextZoneId++,
       label: 'Zona ' + zones.length,
       x, y, w, h,
+      mode: newZoneMode.value, baselineRed: 0,
       baseline: null, streak: 0, state: 'idle', acknowledged: false, diff: null,
     };
-    zone.label = 'Zona ' + zones.length; // provisional, corregido abajo tras push
     zones.push(zone);
-    zone.label = 'Zona ' + zones.length;
+    zone.label = (zone.mode === 'rojo' ? 'Bomba ' : 'Zona ') + zones.length;
     renderZoneList();
     renderZoneOverlays();
     renderZoneMetrics();
@@ -593,7 +616,15 @@
       del.textContent = '✕';
       del.title = 'Eliminar esta zona';
       del.addEventListener('click', () => removeZone(z.id));
-      row.append(swatch, input, dims, state, del);
+      const sel = document.createElement('select');
+      [['cambio','Cambio'],['rojo','Solo rojo']].forEach(([v,t]) => {
+        const o = document.createElement('option');
+        o.value = v; o.textContent = t; if (z.mode === v) o.selected = true;
+        sel.appendChild(o);
+      });
+      sel.title = 'Tipo de vigilancia de esta zona';
+      sel.addEventListener('change', () => { z.mode = sel.value; z.streak = 0; z.diff = null; renderZoneMetrics(); });
+      row.append(swatch, input, sel, dims, state, del);
       zoneListEl.appendChild(row);
     });
   }
@@ -626,8 +657,8 @@
       const row = document.createElement('div');
       row.className = 'metric';
       row.style.marginTop = '8px';
-      const diffTxt = z.diff == null ? '—' : z.diff.toFixed(1);
-      row.innerHTML = `<div class="k" style="color:${PALETTE[i % PALETTE.length]}">${z.label}${z.baseline ? '' : ' (sin calibrar)'}</div>
+      const diffTxt = z.diff == null ? '—' : z.diff.toFixed(1) + (z.mode === 'rojo' ? ' % rojo' : '');
+      row.innerHTML = `<div class="k" style="color:${PALETTE[i % PALETTE.length]}">${z.label}${z.mode === 'rojo' ? ' (solo rojo)' : ''}${z.baseline ? '' : ' (sin calibrar)'}</div>
         <div class="v">${diffTxt} <span style="font-size:11px; color:var(--muted);">— racha: ${z.streak}${z.state==='alarm' ? ' — ⚠️ ALARMA' : ''}</span></div>`;
       zoneMetricsEl.appendChild(row);
     });
@@ -658,6 +689,19 @@
     return vec;
   }
 
+  // Fracción (0-1) de píxeles "rojos" de la zona. El verde, el naranja y el gris NO cuentan.
+  function getZoneRedFraction(z){
+    if (!frozen) ctx.drawImage(videoEl, 0, 0, nativeW, nativeH);
+    const data = ctx.getImageData(z.x, z.y, z.w, z.h).data;
+    let red = 0, total = 0;
+    for (let i = 0; i < data.length; i += 4){
+      const r = data[i], g = data[i+1], b = data[i+2];
+      total++;
+      if (r >= 130 && (r - g) >= 70 && (r - b) >= 70) red++;
+    }
+    return total ? red / total : 0;
+  }
+
   function vectorDiff(a, b){
     const cellDiffs = [];
     for (let c=0;c<GRID*GRID;c++){
@@ -681,6 +725,7 @@
       let ok = 0;
       zones.forEach(z => {
         z.baseline = getZoneVector(z);
+        z.baselineRed = getZoneRedFraction(z);
         z.streak = 0; z.state = 'normal'; z.acknowledged = false;
         if (z.baseline) ok++;
       });
@@ -732,17 +777,25 @@
 
   function runCheck(){
     const threshold = parseFloat(thresholdInput.value);
+    const redThreshold = parseFloat(redThresholdInput.value);
     const needed = parseInt(streakNeededInput.value, 10);
     const newlyTriggered = [];
     let anyAlarm = false, anyAckPending = false;
+    const stateBefore = zones.map(z => z.state + z.acknowledged).join();
 
     zones.forEach(z => {
       if (!z.baseline) return;
-      const vec = getZoneVector(z);
-      const diff = vectorDiff(vec, z.baseline);
+      let diff, limit;
+      if (z.mode === 'rojo'){
+        diff = Math.max(0, (getZoneRedFraction(z) - (z.baselineRed || 0)) * 100);
+        limit = redThreshold;
+      } else {
+        diff = vectorDiff(getZoneVector(z), z.baseline);
+        limit = threshold;
+      }
       z.diff = diff;
 
-      if (diff > threshold){
+      if (diff > limit){
         z.streak++;
       } else {
         z.streak = 0;
@@ -762,9 +815,11 @@
     });
 
     mLast.textContent = new Date().toLocaleTimeString('es-ES');
-    renderZoneList();
     renderZoneMetrics();
-    renderZoneOverlays();
+    if (zones.map(z => z.state + z.acknowledged).join() !== stateBefore){
+      renderZoneList();
+      renderZoneOverlays();
+    }
 
     if (newlyTriggered.length){
       triggerAlarm(newlyTriggered);
@@ -774,7 +829,8 @@
 
     if (anyAlarm){
       const names = zones.filter(z => z.state === 'alarm').map(z => z.label).join(', ');
-      setStatus('alarm', '¡Posible bypass activo!', 'Zona(s) en alarma: ' + names);
+      const hayFallo = zones.some(z => z.state === 'alarm' && z.mode === 'rojo');
+      setStatus('alarm', hayFallo ? '¡Alarma: fallo detectado!' : '¡Posible bypass activo!', 'Zona(s) en alarma: ' + names);
     } else if (monitoring){
       setStatus('normal', 'Vigilando', `Comprobando ${zones.length} zona(s) periódicamente`);
     }
@@ -783,12 +839,21 @@
     monitorTimer = setTimeout(runCheck, (parseInt(intervalInput.value,10)||2) * 1000);
   }
 
+  function describeZones(list){
+    const fallos = list.filter(z => z.mode === 'rojo').map(z => z.label);
+    const acts = list.filter(z => z.mode !== 'rojo').map(z => z.label);
+    const parts = [];
+    if (acts.length) parts.push('posible BYPASS activo (actividad en ' + acts.join(', ') + ')');
+    if (fallos.length) parts.push('FALLO (rojo) en ' + fallos.join(', '));
+    return parts.join(' y ');
+  }
+
   function triggerAlarm(triggeredZones){
-    const names = triggeredZones.map(z => z.label).join(', ');
-    log('ALARMA: actividad detectada en ' + names + '.', 'al');
+    const desc = describeZones(triggeredZones);
+    log('ALARMA: ' + desc + '.', 'al');
     if (soundEnabled.checked) playAlarmSound();
-    if (browserNotifEnabled.checked) sendBrowserNotification(names);
-    const msg = 'Posible BYPASS activo en la EDAR: se ha detectado actividad en ' + names + '.';
+    if (browserNotifEnabled.checked) sendBrowserNotification(desc);
+    const msg = 'Aviso EDAR: ' + desc + '.';
     if (telegramEnabled.checked) sendTelegram('⚠️ ' + msg);
     if (waEnabled.checked) sendWhatsApp('⚠️ ' + msg);
     if (gmailEnabled.checked) sendGmail(msg);
@@ -853,11 +918,11 @@
   // ---------- Notificación del navegador ----------
   function sendBrowserNotification(names){
     if (!('Notification' in window)) return;
-    const body = 'Actividad detectada en: ' + names;
+    const body = names;
     if (Notification.permission === 'granted'){
-      new Notification('⚠️ Posible bypass activo', { body });
+      new Notification('⚠️ Alarma EDAR', { body });
     } else if (Notification.permission !== 'denied'){
-      Notification.requestPermission().then(p => { if (p === 'granted') new Notification('⚠️ Posible bypass activo', { body }); });
+      Notification.requestPermission().then(p => { if (p === 'granted') new Notification('⚠️ Alarma EDAR', { body }); });
     }
   }
 

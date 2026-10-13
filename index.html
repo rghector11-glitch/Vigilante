@@ -243,8 +243,9 @@
       </div>
       <div class="field">
         <label>Intervalo entre comprobaciones (segundos)</label>
-        <input type="range" id="interval" min="1" max="10" value="2">
-        <div class="row"><span>1 s</span><span id="intervalVal">2 s</span><span>10 s</span></div>
+        <input type="range" id="interval" min="0.5" max="10" step="0.5" value="2">
+        <div class="row"><span>0,5 s</span><span id="intervalVal">2 s</span><span>10 s</span></div>
+        <p class="hint" id="delayHint"></p>
       </div>
     </div>
 
@@ -363,6 +364,7 @@
   const streakVal = document.getElementById('streakVal');
   const intervalInput = document.getElementById('interval');
   const intervalVal = document.getElementById('intervalVal');
+  const delayHint = document.getElementById('delayHint');
 
   const telegramEnabled = document.getElementById('telegramEnabled');
   const tgToken = document.getElementById('tgToken');
@@ -426,12 +428,17 @@
     redThresholdVal.textContent = redThresholdInput.value + ' %';
     mThresholdShow.textContent = thresholdInput.value;
     streakVal.textContent = streakNeededInput.value;
-    intervalVal.textContent = intervalInput.value + ' s';
+    intervalVal.textContent = String(intervalInput.value).replace('.', ',') + ' s';
+    const iv = parseFloat(intervalInput.value) || 2, st = parseInt(streakNeededInput.value, 10) || 1;
+    const fmt = n => String(Math.round(n * 10) / 10).replace('.', ',');
+    delayHint.textContent = 'Retraso de detección antes de enviar el aviso: entre ' + fmt(iv * (st - 1)) + ' y ' + fmt(iv * st) +
+      ' s (intervalo × comprobaciones seguidas). Para avisar antes: baja el intervalo o las comprobaciones seguidas.';
   }
   thresholdInput.addEventListener('input', syncSliderLabels);
   redThresholdInput.addEventListener('input', syncSliderLabels);
   streakNeededInput.addEventListener('input', syncSliderLabels);
   intervalInput.addEventListener('input', syncSliderLabels);
+  intervalInput.addEventListener('change', () => { if (monitoring) startTicker(); });
 
   // ---------- Log ----------
   function log(msg, kind){
@@ -755,18 +762,44 @@
     btnAck.disabled = true;
     setStatus('normal', 'Vigilando', `Comprobando ${zones.length} zona(s) periódicamente`);
     log('Vigilancia iniciada.', 'ok');
-    scheduleCheck();
+    startTicker();
   }
 
-  function scheduleCheck(){
-    const secs = parseInt(intervalInput.value, 10) || 2;
-    monitorTimer = setTimeout(runCheck, secs * 1000);
+  // El temporizador vive en un Web Worker: Chrome frena los setTimeout de una ventana
+  // oculta o tapada por otra (p. ej. por el SCADA), pero no los de un worker.
+  let tickWorker = null;
+  let checking = false;
+  function onTick(){
+    if (!monitoring || checking) return;
+    checking = true;
+    try{ runCheck(); }catch(e){ log('Error en la comprobación: ' + e.message, 'al'); }
+    checking = false;
+  }
+  function startTicker(){
+    stopTicker();
+    const ms = Math.round((parseFloat(intervalInput.value) || 2) * 1000);
+    const useFallback = () => {
+      if (tickWorker){ tickWorker.terminate(); tickWorker = null; }
+      if (!monitorTimer) monitorTimer = setInterval(onTick, ms);
+    };
+    try{
+      const src = 'let t=null;onmessage=function(e){if(t)clearInterval(t);t=setInterval(function(){postMessage(1)},e.data);};';
+      tickWorker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+      tickWorker.onmessage = onTick;
+      tickWorker.onerror = () => { log('El temporizador en segundo plano no está disponible; se usa el normal.', 'wa'); useFallback(); };
+      tickWorker.postMessage(ms);
+    }catch(e){
+      useFallback();
+    }
+  }
+  function stopTicker(){
+    if (tickWorker){ tickWorker.terminate(); tickWorker = null; }
+    if (monitorTimer){ clearInterval(monitorTimer); monitorTimer = null; }
   }
 
   function stopMonitoring(){
     monitoring = false;
-    clearTimeout(monitorTimer);
-    monitorTimer = null;
+    stopTicker();
     btnStartMonitor.disabled = !zones.some(z => z.baseline);
     btnStopMonitor.disabled = true;
     btnAck.disabled = true;
@@ -836,7 +869,6 @@
     }
     btnAck.disabled = !anyAckPending;
 
-    monitorTimer = setTimeout(runCheck, (parseInt(intervalInput.value,10)||2) * 1000);
   }
 
   function describeZones(list){
@@ -850,14 +882,15 @@
 
   function triggerAlarm(triggeredZones){
     const desc = describeZones(triggeredZones);
-    log('ALARMA: ' + desc + '.', 'al');
-    if (soundEnabled.checked) playAlarmSound();
-    if (browserNotifEnabled.checked) sendBrowserNotification(desc);
+    // Primero se lanzan los envíos (en paralelo) y después el sonido y la notificación local.
     const msg = 'Aviso EDAR: ' + desc + '.';
     if (telegramEnabled.checked) sendTelegram('⚠️ ' + msg);
     if (waEnabled.checked) sendWhatsApp('⚠️ ' + msg);
     if (gmailEnabled.checked) sendGmail(msg);
     lastTelegramSent = Date.now(); lastWhatsAppSent = Date.now(); lastGmailSent = Date.now();
+    log('ALARMA: ' + desc + '.', 'al');
+    if (soundEnabled.checked) playAlarmSound();
+    if (browserNotifEnabled.checked) sendBrowserNotification(desc);
   }
 
   function maybeSendReminder(){
@@ -932,10 +965,11 @@
     const chatId = tgChatId.value.trim();
     if (!token || !chatId){ log('No se ha enviado el aviso a Telegram: falta el token o el chat ID.', 'wa'); return; }
     try{
+      const t0 = performance.now();
       const url = `https://api.telegram.org/bot${token}/sendMessage?chat_id=${encodeURIComponent(chatId)}&text=${encodeURIComponent(text)}`;
-      const res = await fetch(url);
+      const res = await fetch(url, { keepalive: true });
       const body = await res.json();
-      if (body.ok) log('Aviso enviado a Telegram.', 'ok');
+      if (body.ok) log('Aviso enviado a Telegram (respondió en ' + Math.round(performance.now() - t0) + ' ms).', 'ok');
       else log('Telegram respondió con un error: ' + (body.description || 'desconocido'), 'al');
     }catch(e){ log('No se pudo contactar con Telegram: ' + e.message, 'al'); }
   }
@@ -947,9 +981,10 @@
     const apikey = waApiKey.value.trim();
     if (!phone || !apikey){ log('No se ha enviado el aviso a WhatsApp: falta el número o la API Key.', 'wa'); return; }
     try{
+      const t0 = performance.now();
       const url = `https://api.callmebot.com/whatsapp.php?phone=${encodeURIComponent(phone)}&text=${encodeURIComponent(text)}&apikey=${encodeURIComponent(apikey)}`;
-      await fetch(url, { mode: 'no-cors' });
-      log('Aviso enviado a WhatsApp (CallMeBot). No se puede confirmar la entrega desde aquí — revisa el móvil.', 'ok');
+      await fetch(url, { mode: 'no-cors', keepalive: true });
+      log('Aviso enviado a WhatsApp (CallMeBot respondió en ' + Math.round(performance.now() - t0) + ' ms). No se puede confirmar la entrega desde aquí — revisa el móvil.', 'ok');
     }catch(e){ log('No se pudo contactar con CallMeBot: ' + e.message, 'al'); }
   }
   btnWaTest.addEventListener('click', () => sendWhatsApp('✅ Mensaje de prueba desde el Vigilante de Bypass.'));
@@ -963,8 +998,9 @@
     if (!to || !publicKey || !serviceId || !templateId){ log('No se ha enviado el aviso por email: falta completar la configuración de EmailJS.', 'wa'); return; }
     if (typeof emailjs === 'undefined'){ log('No se pudo cargar la librería de email (revisa la conexión a internet).', 'al'); return; }
     try{
+      const t0 = performance.now();
       await emailjs.send(serviceId, templateId, { to_email: to, message: text, time: new Date().toLocaleString('es-ES') }, publicKey);
-      log('Aviso enviado por email a ' + to + '.', 'ok');
+      log('Aviso enviado por email a ' + to + ' (EmailJS respondió en ' + Math.round(performance.now() - t0) + ' ms).', 'ok');
     }catch(e){ log('No se pudo enviar el email: ' + (e && e.text ? e.text : JSON.stringify(e)), 'al'); }
   }
   btnGmailTest.addEventListener('click', () => sendGmail('✅ Mensaje de prueba desde el Vigilante de Bypass.'));

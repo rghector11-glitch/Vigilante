@@ -268,10 +268,12 @@
         <input type="checkbox" id="waEnabled">
         <label for="waEnabled" style="margin:0; color:var(--text); font-size:13px;">Enviar aviso a WhatsApp cuando salte cualquier alarma</label>
       </div>
-      <div class="field"><label>Tu número de WhatsApp (con prefijo, ej: +34600123456)</label><input type="text" id="waPhone" placeholder="+34600123456"></div>
-      <div class="field"><label>API Key de CallMeBot</label><input type="text" id="waApiKey" placeholder="123456"></div>
+      <div class="field"><label>Teléfono 1 — número de WhatsApp (con prefijo, ej: +34600123456)</label><input type="text" id="waPhone" placeholder="+34600123456"></div>
+      <div class="field"><label>Teléfono 1 — API Key de CallMeBot</label><input type="text" id="waApiKey" placeholder="123456"></div>
+      <div class="field"><label>Teléfono 2 (opcional) — número de WhatsApp</label><input type="text" id="waPhone2" placeholder="+34600654321"></div>
+      <div class="field"><label>Teléfono 2 (opcional) — API Key de CallMeBot</label><input type="text" id="waApiKey2" placeholder="654321"></div>
       <div class="btn-row"><button class="btn" id="btnWaTest">Enviar mensaje de prueba</button></div>
-      <p class="hint">CallMeBot es un servicio gratuito no oficial (no es de WhatsApp/Meta), pensado para uso personal. Activación: guarda <b>+34 644 51 95 23</b> como contacto, envíale por WhatsApp <span style="font-family:var(--mono)">I allow callmebot to send me messages</span>, y te dará tu API Key.</p>
+      <p class="hint">CallMeBot es un servicio gratuito no oficial (no es de WhatsApp/Meta), pensado para uso personal. Activación: guarda <b>+34 644 51 95 23</b> como contacto, envíale por WhatsApp <span style="font-family:var(--mono)">I allow callmebot to send me messages</span>, y te dará tu API Key. <b>Cada teléfono tiene su propia API Key</b>: la persona del teléfono 2 debe hacer esa misma activación desde su WhatsApp y pasarte su clave.</p>
     </div>
 
     <div class="card">
@@ -373,6 +375,8 @@
   const waEnabled = document.getElementById('waEnabled');
   const waPhone = document.getElementById('waPhone');
   const waApiKey = document.getElementById('waApiKey');
+  const waPhone2 = document.getElementById('waPhone2');
+  const waApiKey2 = document.getElementById('waApiKey2');
   const btnWaTest = document.getElementById('btnWaTest');
   const gmailEnabled = document.getElementById('gmailEnabled');
   const gmailTo = document.getElementById('gmailTo');
@@ -400,6 +404,8 @@
       if (typeof s.waEnabled === 'boolean') waEnabled.checked = s.waEnabled;
       if (s.waPhone) waPhone.value = s.waPhone;
       if (s.waApiKey) waApiKey.value = s.waApiKey;
+      if (s.waPhone2) waPhone2.value = s.waPhone2;
+      if (s.waApiKey2) waApiKey2.value = s.waApiKey2;
       if (typeof s.gmailEnabled === 'boolean') gmailEnabled.checked = s.gmailEnabled;
       if (s.gmailTo) gmailTo.value = s.gmailTo;
       if (s.gmailPublicKey) gmailPublicKey.value = s.gmailPublicKey;
@@ -414,14 +420,14 @@
     const s = {
       threshold: thresholdInput.value, redThreshold: redThresholdInput.value, streakNeeded: streakNeededInput.value, interval: intervalInput.value,
       telegramEnabled: telegramEnabled.checked, tgToken: tgToken.value, tgChatId: tgChatId.value, tgReminder: tgReminder.value,
-      waEnabled: waEnabled.checked, waPhone: waPhone.value, waApiKey: waApiKey.value,
+      waEnabled: waEnabled.checked, waPhone: waPhone.value, waApiKey: waApiKey.value, waPhone2: waPhone2.value, waApiKey2: waApiKey2.value,
       gmailEnabled: gmailEnabled.checked, gmailTo: gmailTo.value, gmailPublicKey: gmailPublicKey.value,
       gmailServiceId: gmailServiceId.value, gmailTemplateId: gmailTemplateId.value,
       soundEnabled: soundEnabled.checked, browserNotifEnabled: browserNotifEnabled.checked,
     };
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   }
-  [thresholdInput, redThresholdInput, streakNeededInput, intervalInput, telegramEnabled, tgToken, tgChatId, tgReminder, waEnabled, waPhone, waApiKey, gmailEnabled, gmailTo, gmailPublicKey, gmailServiceId, gmailTemplateId, soundEnabled, browserNotifEnabled]
+  [thresholdInput, redThresholdInput, streakNeededInput, intervalInput, telegramEnabled, tgToken, tgChatId, tgReminder, waEnabled, waPhone, waApiKey, waPhone2, waApiKey2, gmailEnabled, gmailTo, gmailPublicKey, gmailServiceId, gmailTemplateId, soundEnabled, browserNotifEnabled]
     .forEach(el => el.addEventListener('change', saveSettings));
   function syncSliderLabels(){
     thresholdVal.textContent = thresholdInput.value;
@@ -976,16 +982,32 @@
   btnTgTest.addEventListener('click', () => sendTelegram('✅ Mensaje de prueba desde el Vigilante de Bypass.'));
 
   // ---------- WhatsApp (vía CallMeBot) ----------
-  async function sendWhatsApp(text){
-    const phone = waPhone.value.trim();
-    const apikey = waApiKey.value.trim();
-    if (!phone || !apikey){ log('No se ha enviado el aviso a WhatsApp: falta el número o la API Key.', 'wa'); return; }
+  async function sendWhatsAppTo(label, phone, apikey, text){
     try{
       const t0 = performance.now();
       const url = `https://api.callmebot.com/whatsapp.php?phone=${encodeURIComponent(phone)}&text=${encodeURIComponent(text)}&apikey=${encodeURIComponent(apikey)}`;
       await fetch(url, { mode: 'no-cors', keepalive: true });
-      log('Aviso enviado a WhatsApp (CallMeBot respondió en ' + Math.round(performance.now() - t0) + ' ms). No se puede confirmar la entrega desde aquí — revisa el móvil.', 'ok');
-    }catch(e){ log('No se pudo contactar con CallMeBot: ' + e.message, 'al'); }
+      log('Aviso enviado a WhatsApp ' + label + ' (CallMeBot respondió en ' + Math.round(performance.now() - t0) + ' ms). No se puede confirmar la entrega desde aquí — revisa el móvil.', 'ok');
+    }catch(e){ log('No se pudo contactar con CallMeBot (' + label + '): ' + e.message, 'al'); }
+  }
+  async function sendWhatsApp(text){
+    const pairs = [
+      { label: 'teléfono 1', phone: waPhone.value.trim(), key: waApiKey.value.trim() },
+      { label: 'teléfono 2', phone: waPhone2.value.trim(), key: waApiKey2.value.trim() },
+    ];
+    const jobs = [];
+    pairs.forEach((p, i) => {
+      if (!p.phone && !p.key){
+        if (i === 0) log('No se ha enviado el aviso a WhatsApp: falta el número o la API Key.', 'wa');
+        return; // el teléfono 2 es opcional: vacío = no se usa
+      }
+      if (!p.phone || !p.key){
+        log('No se ha enviado el aviso a WhatsApp ' + p.label + ': falta el número o la API Key.', 'wa');
+        return;
+      }
+      jobs.push(sendWhatsAppTo(p.label, p.phone, p.key, text)); // los envíos salen a la vez
+    });
+    await Promise.all(jobs);
   }
   btnWaTest.addEventListener('click', () => sendWhatsApp('✅ Mensaje de prueba desde el Vigilante de Bypass.'));
 
